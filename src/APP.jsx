@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import emailjs from "@emailjs/browser";
 
 
 
@@ -777,7 +776,15 @@ export default function App() {
     const [adminAuth, setAdminAuth] = useState(false);
     const [adminCreds, setAdminCreds] = useState({ email: "", password: "" });
     const [loginForm, setLoginForm] = useState({ email: "", password: "" });
-    const [loginMode, setLoginMode] = useState(false); // toggle signup ↔ login on landing
+    const [loginMode, setLoginMode] = useState(false);
+    const [forgotMode, setForgotMode] = useState(false);
+    const [forgotEmail, setForgotEmail] = useState("");
+    const [forgotOtp, setForgotOtp] = useState("");
+    const [forgotGenOtp, setForgotGenOtp] = useState("");
+    const [forgotOtpSent, setForgotOtpSent] = useState(false);
+    const [forgotOtpOk, setForgotOtpOk] = useState(false);
+    const [newPw, setNewPw] = useState("");
+    const [confirmPw, setConfirmPw] = useState("");
     const [matchSel, setMatchSel] = useState(["", ""]);
     const [toast, setToast] = useState(null);
     const [greeting, setGreeting] = useState("Good Evening ✨");
@@ -878,16 +885,20 @@ export default function App() {
         setGenOtp(code);
         showToast("Sending OTP to your email...", "info");
         try {
-            await emailjs.send(
-                "service_82s4we9",
-                "template_rgqzlj5",
-                {
-                    to_email: form.email.trim(),
-                    otp_code: code,
-                    passcode: code,
-                },
-                "HdWsr1MTduz1fMWbQ"
-            );
+            const ejs = await new Promise((resolve, reject) => {
+                if (window.emailjs) { resolve(window.emailjs); return; }
+                const s = document.createElement("script");
+                s.src = "https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js";
+                s.onload = () => resolve(window.emailjs);
+                s.onerror = () => reject(new Error("Failed to load EmailJS"));
+                document.head.appendChild(s);
+            });
+            ejs.init("HdWsr1MTduz1fMWbQ");
+            await ejs.send("service_82s4we9", "template_rgqzlj5", {
+                to_email: form.email.trim(),
+                otp_code: code,
+                passcode: code,
+            });
             setOtpSent(true);
             showToast(`✅ OTP sent to ${form.email.trim()} — check your inbox!`);
         } catch (err) {
@@ -931,6 +942,45 @@ export default function App() {
         if (!found.password || pw !== found.password) { showToast("Incorrect password", "err"); return; }
         setCurrentUser(found); setScreen("home"); setLoginMode(false);
         showToast(`Welcome back, ${found.name.split(" ")[0]}! 👋`);
+    };
+    const handleForgotSendOtp = async () => {
+        const email = forgotEmail.trim().toLowerCase();
+        if (!email.includes("@")) { showToast("Enter your registered email", "err"); return; }
+        const found = users.find(u => u.email.toLowerCase() === email);
+        if (!found) { showToast("No account found with that email", "err"); return; }
+        const code = String(Math.floor(100000 + Math.random() * 900000));
+        setForgotGenOtp(code);
+        showToast("Sending OTP to your email...", "info");
+        try {
+            const ejs = await new Promise((resolve, reject) => {
+                if (window.emailjs) { resolve(window.emailjs); return; }
+                const s = document.createElement("script");
+                s.src = "https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js";
+                s.onload = () => resolve(window.emailjs);
+                s.onerror = () => reject(new Error("Failed to load EmailJS"));
+                document.head.appendChild(s);
+            });
+            ejs.init("HdWsr1MTduz1fMWbQ");
+            await ejs.send("service_82s4we9", "template_rgqzlj5", {
+                to_email: email,
+                otp_code: code,
+                passcode: code,
+            });
+            setForgotOtpSent(true);
+            showToast(`✅ OTP sent to ${email} — check your inbox!`);
+        } catch (err) {
+            showToast(`Failed to send OTP: ${err?.text || err?.message || "unknown error"}`, "err");
+        }
+    };
+    const handleForgotReset = () => {
+        if (forgotOtp !== forgotGenOtp) { showToast("Incorrect OTP", "err"); return; }
+        if (!newPw || newPw.length < 8) { showToast("Password must be at least 8 characters", "err"); return; }
+        if (newPw !== confirmPw) { showToast("Passwords don't match", "err"); return; }
+        setUsers(us => us.map(u => u.email.toLowerCase() === forgotEmail.trim().toLowerCase() ? { ...u, password: newPw } : u));
+        showToast("Password reset successfully! Please log in.", "ok");
+        setForgotMode(false); setForgotEmail(""); setForgotOtp(""); setForgotGenOtp("");
+        setForgotOtpSent(false); setForgotOtpOk(false); setNewPw(""); setConfirmPw("");
+        setLoginMode(true);
     };
     const doMatch = () => {
         const [a, b] = matchSel.map(Number);
@@ -1068,6 +1118,60 @@ export default function App() {
                                 <button onClick={() => setScreen("signup")} style={{ ...btn(pk), marginBottom: 12 }}>Sign Up — It's Free</button>
                                 <button onClick={() => setScreen("admin")} style={btn(pu, true)}>Admin Login</button>
                             </>
+                        ) : forgotMode ? (
+                            <div style={{ animation: "fadeUp 0.3s ease" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+                                    <button onClick={() => { setForgotMode(false); setForgotOtpSent(false); setForgotOtpOk(false); setForgotEmail(""); setForgotOtp(""); setNewPw(""); setConfirmPw(""); }} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.45)", cursor: "pointer", fontSize: 14, fontFamily: FF }}>← Back</button>
+                                    <span style={{ fontWeight: 700, fontSize: 16 }}>Reset Password</span>
+                                </div>
+                                {!forgotOtpOk ? (
+                                    <>
+                                        <input placeholder="Your registered email" type="email" value={forgotEmail}
+                                            onChange={e => setForgotEmail(e.target.value)}
+                                            style={{ ...inp, marginBottom: 12 }} />
+                                        {!forgotOtpSent ? (
+                                            <button onClick={handleForgotSendOtp} style={btn(pk)}>Send OTP →</button>
+                                        ) : (
+                                            <>
+                                                <div style={{ ...card, marginBottom: 12, background: "rgba(76,201,240,0.05)", border: `1px solid rgba(76,201,240,0.2)`, fontSize: 12, color: "rgba(255,255,255,0.5)" }}>
+                                                    📧 Check your inbox for the OTP.
+                                                </div>
+                                                <input placeholder="• • • • • •" value={forgotOtp}
+                                                    onChange={e => setForgotOtp(e.target.value)}
+                                                    style={{ ...inp, letterSpacing: 8, textAlign: "center", fontSize: 22, fontWeight: 700, marginBottom: 12 }} maxLength={6} />
+                                                <button onClick={() => {
+                                                    if (forgotOtp === forgotGenOtp) { setForgotOtpOk(true); showToast("✅ OTP verified!"); }
+                                                    else showToast("Incorrect OTP", "err");
+                                                }} style={btn(gr)}>Verify OTP ✓</button>
+                                            </>
+                                        )}
+                                    </>
+                                ) : (
+                                    <>
+                                        <div style={{ textAlign: "center", color: gr, fontSize: 14, marginBottom: 16 }}>✅ Identity verified — set your new password</div>
+                                        <label style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", letterSpacing: 1, textTransform: "uppercase", fontWeight: 600, display: "block", marginBottom: 8 }}>New Password</label>
+                                        <input placeholder="At least 8 characters" type="password" value={newPw}
+                                            onChange={e => setNewPw(e.target.value)}
+                                            style={{ ...inp, marginBottom: 12 }} />
+                                        <label style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", letterSpacing: 1, textTransform: "uppercase", fontWeight: 600, display: "block", marginBottom: 8 }}>Confirm Password</label>
+                                        <input placeholder="Repeat new password" type="password" value={confirmPw}
+                                            onChange={e => setConfirmPw(e.target.value)}
+                                            onKeyDown={e => e.key === "Enter" && handleForgotReset()}
+                                            style={{ ...inp, marginBottom: 12 }} />
+                                        {confirmPw && newPw && (
+                                            <div style={{
+                                                fontSize: 12, marginBottom: 12, padding: "8px 12px", borderRadius: 8,
+                                                background: newPw === confirmPw ? "rgba(6,214,160,0.08)" : "rgba(224,80,80,0.08)",
+                                                border: `1px solid ${newPw === confirmPw ? "rgba(6,214,160,0.2)" : "rgba(224,80,80,0.2)"}`,
+                                                color: newPw === confirmPw ? gr : "#e05050"
+                                            }}>
+                                                {newPw === confirmPw ? "✓ Passwords match" : "✗ Passwords don't match"}
+                                            </div>
+                                        )}
+                                        <button onClick={handleForgotReset} style={btn(pk)}>Reset Password 🔑</button>
+                                    </>
+                                )}
+                            </div>
                         ) : (
                             <div style={{ animation: "fadeUp 0.3s ease" }}>
                                 <input
@@ -1083,8 +1187,13 @@ export default function App() {
                                     value={loginForm.password}
                                     onChange={e => setLoginForm(f => ({ ...f, password: e.target.value }))}
                                     onKeyDown={e => e.key === "Enter" && handleLogin()}
-                                    style={{ ...inp, marginBottom: 18 }}
+                                    style={{ ...inp, marginBottom: 10 }}
                                 />
+                                <div style={{ textAlign: "right", marginBottom: 18 }}>
+                                    <button onClick={() => { setForgotMode(true); setForgotEmail(loginForm.email); }} style={{ background: "none", border: "none", color: pk, cursor: "pointer", fontSize: 13, fontFamily: FF, fontWeight: 600 }}>
+                                        Forgot Password?
+                                    </button>
+                                </div>
                                 <button onClick={handleLogin} style={{ ...btn(pk), marginBottom: 14 }}>Log In →</button>
                             </div>
                         )}
@@ -1173,7 +1282,7 @@ export default function App() {
                                     const labels = ["", "Weak 😬", "Fair 🙂", "Good 👍", "Strong 💪"];
                                     const colors = ["", "#e05050", am, bl, gr];
                                     return (
-                                        <div style={{ marginBottom: 16 }}>
+                                        <div style={{ marginBottom: 12 }}>
                                             <div style={{ display: "flex", gap: 4, marginBottom: 5 }}>
                                                 {[1, 2, 3, 4].map(i => (
                                                     <div key={i} style={{ flex: 1, height: 4, borderRadius: 4, background: i <= score ? colors[score] : "rgba(255,255,255,0.08)", transition: "all 0.3s" }} />
@@ -1183,8 +1292,27 @@ export default function App() {
                                         </div>
                                     );
                                 })()}
+                                <label style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", letterSpacing: 1, textTransform: "uppercase", fontWeight: 600, display: "block", marginBottom: 8 }}>Confirm Password</label>
+                                <input
+                                    placeholder="Repeat your password"
+                                    type="password"
+                                    value={form.confirmPassword || ""}
+                                    onChange={e => updForm("confirmPassword", e.target.value)}
+                                    style={{ ...inp, marginBottom: 10 }}
+                                />
+                                {form.confirmPassword && form.password && (
+                                    <div style={{
+                                        fontSize: 12, marginBottom: 14, padding: "8px 12px", borderRadius: 8,
+                                        background: form.password === form.confirmPassword ? "rgba(6,214,160,0.08)" : "rgba(224,80,80,0.08)",
+                                        border: `1px solid ${form.password === form.confirmPassword ? "rgba(6,214,160,0.2)" : "rgba(224,80,80,0.2)"}`,
+                                        color: form.password === form.confirmPassword ? gr : "#e05050"
+                                    }}>
+                                        {form.password === form.confirmPassword ? "✓ Passwords match" : "✗ Passwords don't match"}
+                                    </div>
+                                )}
                                 <button onClick={() => {
                                     if (!form.password || form.password.length < 8) { showToast("Password must be at least 8 characters", "err"); return; }
+                                    if (form.password !== form.confirmPassword) { showToast("Passwords don't match", "err"); return; }
                                     setStep(3);
                                 }} style={btn(pk)}>Next →</button>
                             </div>
